@@ -1,6 +1,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <iostream>
+#include <string>
+#include <codecvt>
+#include <locale>
 #include <conio.h>
 
 std::wstring convertToWideString(const std::string& str) {
@@ -14,21 +17,22 @@ std::wstring convertToWideString(const std::string& str) {
 
 struct employee
 {
-    int num; // ????????????????? ????? ??????????
-    char name[10]; // ??? ??????????
-    double hours; // ?????????? ???????????? ?????
+	int num;
+	char name[10];
+	double hours;
 };
 
 struct message {
-    char type;
-    int id;
+	char type;
+	int id;
 };
 
 int main()
 {
-	char c; 
+	char c;
 	HANDLE hNamedPipe;
 	std::string pipeName = "\\\\.\\pipe\\demo_pipe";
+	DWORD cbRead, dwMode;
 
 	while (true) {
 		WaitNamedPipe(convertToWideString(pipeName).c_str(), INFINITE);
@@ -42,122 +46,99 @@ int main()
 			(HANDLE)NULL
 		);
 
-		if (hNamedPipe == INVALID_HANDLE_VALUE)
-		{
-			std::cerr << "Connection with the named pipe failed." << std::endl
-				<< "The last error code: " << GetLastError() << std::endl;
-			std::cout << "Press any char to finish the client: ";
-			std::cin >> c;
-			return 0;
-		}
-		else {
+		if (hNamedPipe != INVALID_HANDLE_VALUE) {
 			break;
 		}
 	}
-    while (true) {
-        std::cout << "1 - modification\n2 - reading\n3 - exit\n";
-        int answer;
-        std::cin >> answer;
-        if (answer == 1) {
-            boolean ok = false;
-            while (!ok) {
-                std::cout << "Enter ID\n";
-                int id;
-                std::cin >> id;
-                message msg;
-                msg.id = id;
-                msg.type = 'w';
-                employee emp;
-                TransactNamedPipe(
-                    hNamedPipe,                  // pipe handle 
-                    (char*)&msg,              // message to server
-                    sizeof(msg), // message length 
-                    (char*)&emp,              // buffer to receive reply
-                    sizeof(emp),  // size of read buffer
-                    &cbRead,                // bytes read
-                    NULL);                  // not overlapped 
-                std::cout << "Name: " << emp.name << "\nHours: " << emp.hours << "\nModified name:\n";
-                std::cin >> emp.name;
-                std::cout << "\nModified hours:\n";
-                std::cin >> emp.hours;
-                DWORD dwRead;
-                WriteFile(hNamedPipe,
-                    (char*)&emp,
-                    sizeof(emp),
-                    &dwRead,
-                    NULL);
-                std::cout << "\nPress any key to finish\n";
-                _getch();
-            }
-        else {
-            std::cout << "\nEmploee not found\n";
-        }
-        }
-        else if (answer == 2) {
-            boolean ok = false;
-            while (!ok) {
-                cout << "\n??????? ID\n";
-                int id;
-                cin >> id;
-                HANDLE mutex;
-                mutex = OpenMutex(MUTEX_ALL_ACCESS, false, (LPWSTR)wstring_convert<codecvt_utf8<wchar_t>>().from_bytes("w" + to_string(id)).c_str());
-                if (mutex != NULL) {
-                    ok = true;
-                    cout << "\n?????????, ?????? ? ?????? ????? ???? ????????????...\n";
-                    WaitForSingleObject(mutex, INFINITE);
-                    message msg;
-                    msg.id = id;
-                    msg.type = 'r';
-                    employee emp;
-                    TransactNamedPipe(
-                        hPipe,                  // pipe handle 
-                        (char*)&msg,              // message to server
-                        sizeof(msg), // message length 
-                        (char*)&emp,              // buffer to receive reply
-                        sizeof(emp),  // size of read buffer
-                        &cbRead,                // bytes read
-                        NULL);                  // not overlapped 
-                    cout << "??? ??????????: " << emp.name << "\n????? ???????????? ?????: " << emp.hours << "\n??????? ????? ???????, ????? ????????? ??????\n";
-                    _getch();
-                    ReleaseMutex(mutex);
-                }
-                else {
-                    cout << "\n?????????? ? ????? ??????? ???\n";
-                }
-            }
-        }
-        else {
-            break;
-        }
-    }
-	/*for (int i = 0; i < 10; i++)
-	{
-		DWORD dwBytesWritten;
-		if (!WriteFile(
-			hNamedPipe, 
-			&i, 
-			sizeof(i), 
-			&dwBytesWritten, 
-			(LPOVERLAPPED)NULL 
-		))
-		{
 
-			std::cerr << "Writing to the named pipe failed: " << std::endl
-				<< "The last error code: " << GetLastError() << std::endl;
-			std::cout << "Press any char to finish the client: ";
-			std::cin >> c;
-			CloseHandle(hNamedPipe);
+	dwMode = PIPE_READMODE_MESSAGE;
+
+	if (!SetNamedPipeHandleState(hNamedPipe, &dwMode, NULL, NULL))
+	{
+		std::cout << "SetNamedPipeHandleState failed.\n";
+		return 0;
+	}
+
+	while (true) {
+		std::cout << "1 - modification\n2 - reading\n3 - exit\n";
+		int ans;
+		std::cin >> ans;
+		if (ans == 1) {
+			boolean ok = false;
+			while (!ok) {
+				std::cout << "Enter ID\n";
+				int id;
+				std::cin >> id;
+				HANDLE* mutex = new HANDLE[2];
+				mutex[0] = OpenMutex(MUTEX_ALL_ACCESS, true, (LPWSTR)convertToWideString("r" + std::to_string(id)).c_str());
+				if (mutex[0] != NULL) {
+					ok = true;
+					mutex[1] = OpenMutex(MUTEX_ALL_ACCESS, false, (LPWSTR)convertToWideString("w" + std::to_string(id)).c_str());
+					std::cout << "Wait\n";
+					WaitForMultipleObjects(2, mutex, true, INFINITE);
+					message msg;
+					msg.id = id;
+					msg.type = 'w';
+					employee emp;
+					TransactNamedPipe(
+						hNamedPipe,
+						(char*)&msg,
+						sizeof(msg),
+						(char*)&emp,
+						sizeof(emp),
+						&cbRead,
+						NULL);
+					std::cout << "Name: " << emp.name << "\nHours: " << emp.hours << "\nModified name\n";
+					std::cin >> emp.name;
+					std::cout << "\nModified hours\n";
+					std::cin >> emp.hours;
+					DWORD dwRead;
+					WriteFile(hNamedPipe, (char*)&emp, sizeof(emp), &dwRead, NULL);
+					std::cout << "\nPress any key to finish\n";
+					_getch();
+					ReleaseMutex(mutex[0]);
+					ReleaseMutex(mutex[1]);
+				}
+				else {
+					std::cout << "\nEmployee not found\n";
+				}
+			}
+		}
+		else if (ans == 2) {
+			boolean ok = false;
+			while (!ok) {
+				std::cout << "\nEnter ID\n";
+				int id;
+				std::cin >> id;
+				HANDLE mutex;
+				mutex = OpenMutex(MUTEX_ALL_ACCESS, false, (LPWSTR)convertToWideString("w" + std::to_string(id)).c_str());
+				if (mutex != NULL) {
+					ok = true;
+					std::cout << "\nWait\n";
+					WaitForSingleObject(mutex, INFINITE);
+					message msg;
+					msg.id = id;
+					msg.type = 'r';
+					employee emp;
+					TransactNamedPipe(
+						hNamedPipe,
+						(char*)&msg,
+						sizeof(msg),
+						(char*)&emp,
+						sizeof(emp),
+						&cbRead,
+						NULL);
+					std::cout << "Name: " << emp.name << "\nHours: " << emp.hours << "\nPress any key to exit\n";
+					_getch();
+					ReleaseMutex(mutex);
+				}
+				else {
+					std::cout << "\nEmployee not found\n";
+				}
+			}
+		}
+		else {
 			return 0;
 		}
-	
-		std::cout << "The number " << i << " is written to the named pipe." << std::endl;
-		Sleep(1000);
-	}*/
-	
-	CloseHandle(hNamedPipe);
-
-	std::cout << "The data are written by the client." << std::endl
-		<< "Press any char to finish the client: ";
-	std::cin >> c;
-	return 0;
+	}
 }
